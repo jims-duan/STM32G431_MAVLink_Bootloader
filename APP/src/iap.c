@@ -1,5 +1,6 @@
 #include "iap.h"
 #include "stmflash.h"
+#include "crc.h"
 
 iapfun jump2app; 
 uint16_t iapbuf[2048];   
@@ -36,6 +37,32 @@ int iap_load_app(uint32_t appxaddr)
     // 验证栈指针
     uint32_t msp_value = *(volatile uint32_t*)appxaddr;
     uint32_t reset_vector = *(volatile uint32_t*)(appxaddr + 4);
+
+    // 校验CRC
+    uint32_t stored_size = *((uint32_t*)APP_INFO_ADDR);
+    uint32_t stored_crc = *((uint32_t*)(APP_INFO_ADDR + 4));
+
+    uint8_t flash_data[10];
+    uint32_t add = 0x08008000;
+    uint32_t t = 0;
+    volatile uint32_t rc_val = 0;
+
+    __HAL_CRC_DR_RESET(&hcrc);
+    while(1)
+    {
+        flash_read(add, flash_data, 1);
+        rc_val = HAL_CRC_Accumulate(&hcrc, (uint32_t*)flash_data, 1);
+        add += 1;
+        t+=1;
+        if(t>=stored_size)
+        {
+            break;
+        }
+    }
+    if (stored_crc != rc_val)
+    {
+        return -10;
+    }
     
     // STM32G431 SRAM: 0x20000000 - 0x20007FFF (32KB)
 	// 栈顶指针有效范围: 0x20000004 到 0x20008000 (包含边界值)

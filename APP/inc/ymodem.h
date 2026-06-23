@@ -41,6 +41,7 @@ typedef struct
     uint32_t received_size;     // 接收计数
 
     uint32_t flash_address;     // 程序存储地址
+    uint32_t app_crc;           // 程序CRC值
 }
 YMODEM_State_Machine;
 extern YMODEM_State_Machine ymodem_fsm;

@@ -71,7 +71,6 @@ void SystemClock_Config(void);
 // 放入.noinit段，上电不自动清零
 __attribute__((section(".noinit"))) volatile uint32_t g_UpdateFlag;
 /* USER CODE END 0 */
-
 /**
   * @brief  The application entry point.
   * @retval int
@@ -105,7 +104,7 @@ int main(void)
   MX_USB_Device_Init();
   MX_LPUART1_UART_Init();
   MX_CRC_Init();
-  MX_IWDG_Init();
+  // MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
   uint32_t i = 0;
   // 按下按键上电等待3s，强制进入APP升级
@@ -218,6 +217,7 @@ int main(void)
       }
     }
   }
+  __HAL_CRC_DR_RESET(&hcrc);
   HAL_IWDG_Refresh(&hiwdg);
   /* USER CODE END 2 */
 

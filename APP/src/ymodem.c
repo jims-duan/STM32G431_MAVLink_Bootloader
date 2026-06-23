@@ -25,7 +25,8 @@ void YMODEM_Init(YMODEM_State_Machine* ymodem)
     memset(ymodem->filename, 0, sizeof(ymodem->filename));
     ymodem->file_size = 0;                        // 文件大小
     ymodem->received_size = 0;                    // 接收计数
-    ymodem->flash_address = FLASH_APP1_ADDR;        // FLASH初始地址
+    ymodem->flash_address = FLASH_APP_ADDR;        // FLASH初始地址
+    ymodem->app_crc = 0;                          // 程序CRC值
 }
 
 void YMODEM_Reset(YMODEM_State_Machine* ymodem)
@@ -76,29 +77,29 @@ static uint32_t Str2Int(uint8_t* inputstr, uint32_t* intnum)
     }
     return res;
 }
-// static uint16_t CRC16_CCITT(const uint8_t* data, uint16_t len)
-// {
-//     uint16_t crc = 0x0000;
-//     uint16_t poly = 0x1021;
+static uint16_t CRC16_CCITT(const uint8_t* data, uint16_t len)
+{
+    uint16_t crc = 0x0000;
+    uint16_t poly = 0x1021;
 
-//     for (uint16_t i = 0; i < len; i++)
-//     {
-//         crc ^= (data[i] << 8);
-//         for (uint8_t j = 0; j < 8; j++)
-//         {
-//             if (crc & 0x8000)
-//             {
-//                 crc = (crc << 1) ^ poly;
-//             }
-//             else
-//             {
-//                 crc <<= 1;
-//             }
-//         }
-//     }
+    for (uint16_t i = 0; i < len; i++)
+    {
+        crc ^= (data[i] << 8);
+        for (uint8_t j = 0; j < 8; j++)
+        {
+            if (crc & 0x8000)
+            {
+                crc = (crc << 1) ^ poly;
+            }
+            else
+            {
+                crc <<= 1;
+            }
+        }
+    }
 
-//     return crc;
-// }
+    return crc;
+}
 
 void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t *len)
 {
@@ -155,8 +156,8 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
     case(YMODEM_SOH):       // 128字节数据包
     {
       // 计算 CRC
-      // uint16_t calc_crc = CRC16_CCITT(&buff[3], 128);
-      uint16_t calc_crc = (uint16_t)HAL_CRC_Calculate(&hcrc, (uint32_t*)&buff[3], 128);
+      uint16_t calc_crc = CRC16_CCITT(&buff[3], 128);
+      // uint16_t calc_crc = (uint16_t)HAL_CRC_Calculate(&hcrc, (uint32_t*)&buff[3], 128);
       uint16_t recv_crc = (buff[131] << 8) | buff[132];
 
       // 校验 CRC
@@ -186,6 +187,8 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
         YMODEM_SendByte(YMODEM_C);
        
         ymodem->expected_block = ymodem->block_number + 1;
+
+        __HAL_CRC_DR_RESET(&hcrc);
       }
       else  // 正常数据包
       {
@@ -209,7 +212,13 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
           // 写入缓冲区中的所有数据（可能不足一页）
           if (n > 0)
           {
+            ymodem->app_crc = HAL_CRC_Accumulate(&hcrc, (uint32_t*)YmodemBuff, n);
             iap_write_appbin(ymodem->flash_address, YmodemBuff, n);
+            // 写入APP大小和CRC校验值
+            uint8_t buffer[8];
+            *(uint32_t*)(buffer + 0) = ymodem->file_size;
+            *(uint32_t*)(buffer + 4) = ymodem->app_crc;
+            FlashWriteMulti_AppendSafe(APP_INFO_ADDR, buffer, 8);
             ymodem->flash_address += n;
             n = 0;
           }
@@ -224,6 +233,8 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
         if (n >= FLASH_PAGE_SIZE)
         {
           n = 0;
+
+          ymodem->app_crc = HAL_CRC_Accumulate(&hcrc, (uint32_t*)YmodemBuff, FLASH_PAGE_SIZE);
           iap_write_appbin(ymodem->flash_address, YmodemBuff, FLASH_PAGE_SIZE);
           ymodem->flash_address += FLASH_PAGE_SIZE;
         }
