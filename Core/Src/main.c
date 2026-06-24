@@ -150,7 +150,7 @@ int main(void)
     // 没有事件发生，直接跳转APP
     if (iap_load_app(0x08008000) < 0)
     {
-
+      // 固件损坏或非固件文件，执行bootloader等待接收固件
     }
   }
 

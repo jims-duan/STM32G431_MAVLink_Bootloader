@@ -45,28 +45,28 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     # Release 模式：激进体积优化（适合发布）
-    add_compile_options(
-        -Os                    # 体积优化
-        -ffunction-sections    # 函数分段
-        -fdata-sections        # 数据分段
-        -flto                  # 链接时优化
-        -fomit-frame-pointer   # 省略帧指针
-    )
-    add_link_options(
-        -Wl,--gc-sections      # 移除未使用的段
-        -flto                  # 链接时优化
-        -Wl,-Os                # 链接器优化体积
-    )
-    add_compile_definitions(NDEBUG)
-    message(STATUS "Release mode: Max size optimization, no debug info")
+    # add_compile_options(
+    #     -Os                    # 体积优化
+    #     -ffunction-sections    # 函数分段
+    #     -fdata-sections        # 数据分段
+    #     -flto                  # 链接时优化
+    #     -fomit-frame-pointer   # 省略帧指针
+    # )
+    # add_link_options(
+    #     -Wl,--gc-sections      # 移除未使用的段
+    #     -flto                  # 链接时优化
+    #     -Wl,-Os                # 链接器优化体积
+    # )
+    # add_compile_definitions(NDEBUG)
+    # message(STATUS "Release mode: Max size optimization, no debug info")
 
     # Debug 模式：不优化，完全可调试
-    # add_compile_options(
-    #     -O1                    # 无优化
-    #     -ggdb3                 # 详细调试信息
-    #     -fno-omit-frame-pointer # 保留帧指针
-    # )
-    # message(STATUS "Debug mode: Full debug symbols, no optimization")
+    add_compile_options(
+        -O1                    # 无优化
+        -ggdb3                 # 详细调试信息
+        -fno-omit-frame-pointer # 保留帧指针
+    )
+    message(STATUS "Debug mode: Full debug symbols, no optimization")
     
 endif()
 

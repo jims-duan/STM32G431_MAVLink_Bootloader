@@ -182,6 +182,17 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
         }
         size_str[i] = '\0';
         Str2Int(size_str, &ymodem->file_size); // 转换文件大小
+        if (ymodem->file_size > 94 * 1024)
+        {
+          YMODEM_SendByte(YMODEM_CAN);
+          YMODEM_SendByte(YMODEM_CAN);
+          YMODEM_SendByte(YMODEM_CAN);
+          YMODEM_SendByte(YMODEM_CAN);
+          YMODEM_SendByte(YMODEM_CAN);
+          __DSB();
+          __ISB();
+          NVIC_SystemReset();
+        }
        
         YMODEM_SendByte(YMODEM_ACK);
         YMODEM_SendByte(YMODEM_C);
