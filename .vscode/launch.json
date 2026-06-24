@@ -7,7 +7,7 @@
             "name": "Debug (OpenOCD)",
             "servertype": "openocd",
             "cwd": "${workspaceRoot}",
-            "executable": "./build/Debug/G431_MAVLink_Bootloader.elf",
+            "executable": "./build/Release/G431_MAVLink_Bootloader.elf",
             "configFiles": [
                 "interface/cmsis-dap.cfg",
                 // "interface/stlink.cfg",

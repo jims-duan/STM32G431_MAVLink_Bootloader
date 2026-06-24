@@ -235,8 +235,56 @@ int main(void)
     if (tick - tick_500ms >= 500)
     {
       tick_500ms = tick;
-      
+
       HAL_IWDG_Refresh(&hiwdg);
+    }
+
+    static uint32_t last_tick = 0;
+    static uint8_t  state = 0;          // 0: 等待周期开始, 1: 亮灯, 2: 灭灯
+    static uint8_t  flash_count = 0;    // 当前周期内已完成的闪烁次数
+
+    switch (state)
+    {
+      case 0: // 等待500ms周期开始
+        if (tick - last_tick >= 1000)
+        {
+          flash_count = 0;                // 重置闪烁计数
+          HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_RESET);   // 亮灯
+          state = 1;
+          last_tick = tick;
+        }
+        break;
+
+      case 1: // 亮灯状态，持续40ms后熄灭
+        if (tick - last_tick >= 50)
+        {
+          HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_SET); // 灭灯
+          state = 2;
+          last_tick = tick;
+        }
+        break;
+
+      case 2: // 灭灯状态，持续40ms后判断
+        if (tick - last_tick >= 50)
+        {
+          flash_count++;
+          if (flash_count < 2)            // 还没闪够两次，再亮一次
+          {
+            HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_RESET);
+            state = 1;
+            last_tick = tick;
+          }
+          else                            // 两次已闪完，进入空闲等待
+          {
+            state = 0;
+            last_tick = tick;           // 重置计时起点，准备下一个500ms周期
+          }
+        }
+        break;
+
+      default:
+        state = 0;
+        break;
     }
     
     if (tick - tick_1ms >= 1)

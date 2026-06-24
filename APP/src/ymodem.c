@@ -137,7 +137,7 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
  
   if(ymodem->state == YMODEM_STATE_COMPLETE)  // 传输结束
   {
-    YMODEM_SendByte(YMODEM_C);
+    YMODEM_SendByte(YMODEM_ACK);
    
     ymodem->state = YMODEM_STATE_IDLE;
 
