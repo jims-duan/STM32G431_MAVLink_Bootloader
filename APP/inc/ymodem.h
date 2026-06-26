@@ -46,14 +46,9 @@ typedef struct
 YMODEM_State_Machine;
 extern YMODEM_State_Machine ymodem_fsm;
 
-static inline uint32_t get_tick_diff(uint32_t current, uint32_t previous)
-{
-    return current - previous;
-}
-
 void YMODEM_Init(YMODEM_State_Machine* ymodem);
 void YMODEM_SendByte(uint8_t data);
-void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t *len);
+void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, uint16_t *len);
 
 
 #endif

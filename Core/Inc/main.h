@@ -41,7 +41,10 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+static inline uint32_t get_tick_diff(uint32_t current, uint32_t previous)
+{
+    return current - previous;
+}
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/

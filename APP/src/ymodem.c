@@ -35,10 +35,22 @@ void YMODEM_Reset(YMODEM_State_Machine* ymodem)
 }
 
 
+#define YMODEM_TX_TIMEOUT_MS  10
 void YMODEM_SendByte(uint8_t data)
 {
-    while(usb_tx_complete == 0);
-    usb_tx_complete = 0;
+    uint32_t start_tick = HAL_GetTick();
+    
+    // 等待上一次发送完成，带超时
+    while (usbd_type.usb_tx_complete == 0)
+    {
+        if ((HAL_GetTick() - start_tick) >= YMODEM_TX_TIMEOUT_MS)
+        {
+            // 超时处理
+            usbd_type.usb_tx_complete = 1;  // 强制标记为完成
+            return;
+        }
+    }
+    usbd_type.usb_tx_complete = 0;
     CDC_Transmit_FS(&data, 1);
 }
 
@@ -101,7 +113,7 @@ static uint16_t CRC16_CCITT(const uint8_t* data, uint16_t len)
     return crc;
 }
 
-void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t *len)
+void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, uint16_t *len)
 {
   if(*len < 1)
   {
@@ -141,7 +153,7 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
    
     ymodem->state = YMODEM_STATE_IDLE;
 
-    HAL_IWDG_Refresh(&hiwdg);
+    // 验证失败直接复位重新进入bootloader
     if (iap_load_app(0x08008000) < 0)
     {
       __DSB();
@@ -198,6 +210,7 @@ void YMODEM_Parse(YMODEM_State_Machine *ymodem, uint8_t *data, volatile uint16_t
         YMODEM_SendByte(YMODEM_C);
        
         ymodem->expected_block = ymodem->block_number + 1;
+        ymodem->state = YMODEM_STATE_START;
 
         __HAL_CRC_DR_RESET(&hcrc);
       }

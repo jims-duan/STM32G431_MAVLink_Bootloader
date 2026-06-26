@@ -31,8 +31,36 @@
 #include "usbd_cdc.h"
 
 /* USER CODE BEGIN INCLUDE */
-extern volatile uint8_t usb_vcp_opened; // 虚拟串口是否打开的标志
-extern volatile uint8_t usb_tx_complete; // USB发送完成标志
+typedef struct 
+{
+  volatile uint8_t usb_vcp_opened;  // 虚拟串口是否打开的标志
+  volatile uint8_t usb_tx_complete; // USB发送完成标志
+  volatile uint8_t usb_rx_complete; // USB数据接收完成标志
+
+  volatile uint32_t receive_flag;            // 控制接收超时计数
+  volatile uint32_t time_count;              // 超时计数器
+
+  uint8_t ReceBuff[2048];           // 最多接收2048字节
+  uint16_t BuffLen;                 // 接收数据长度
+} USBD_CDC_Type;
+extern USBD_CDC_Type usbd_type;
+
+static inline void USB_Rx_Timeout_Check()
+{
+  // 接收数据
+  if (usbd_type.receive_flag == 1)
+  {
+    usbd_type.time_count++;
+    // 超时
+    if(usbd_type.time_count >= 2)
+    {
+      usbd_type.time_count = 0;       // 计数器从0开始计时
+      usbd_type.receive_flag = 0;     // 超时|接收完成，清除接收标志
+      
+      usbd_type.usb_rx_complete = 1;  // 接收完成标志
+    }
+  }
+}
 /* USER CODE END INCLUDE */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY

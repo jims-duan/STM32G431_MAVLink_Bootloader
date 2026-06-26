@@ -22,8 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-#include "ring_buffer.h"
-#include "usart.h"
+
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,8 +31,15 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-volatile uint8_t usb_vcp_opened = 0; // 虚拟串口是否打开的标志
-volatile uint8_t usb_tx_complete = 1; // USB发送完成标志
+USBD_CDC_Type usbd_type = 
+{
+  .usb_vcp_opened = 0,
+  .usb_tx_complete = 1,
+  .usb_rx_complete = 0,
+  .ReceBuff = {0},
+  .BuffLen = 0,
+
+};
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -234,11 +240,11 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
       uint8_t dtr = pbuf[0] & 0x01;
       if(dtr)
       {
-          usb_vcp_opened = 1;  // 上位机打开串口
+          usbd_type.usb_vcp_opened = 1;  // 上位机打开串口
       }
       else
       {
-          usb_vcp_opened = 0;  // 上位机关闭串口
+          usbd_type.usb_vcp_opened = 0;  // 上位机关闭串口
       }
   }
     break;
@@ -273,7 +279,12 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  RingBuff_WriteBytes(&usb_ringBuffer, Buf, *Len); // 将接收到的数据写入全局环形缓冲区
+  usbd_type.receive_flag = 1;     // 开始超时计数器
+
+  // 从索引位置开始追加
+  uint8_t* write_p = &usbd_type.ReceBuff[usbd_type.BuffLen];
+  memcpy(write_p, Buf, *Len);  // 将接收到的数据写入缓冲区
+  usbd_type.BuffLen += *Len;
 
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
@@ -326,7 +337,7 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Len);
   UNUSED(epnum);
 
-  usb_tx_complete = 1; // 设置USB发送完成标志
+  usbd_type.usb_tx_complete = 1; // 设置USB发送完成标志
   /* USER CODE END 13 */
   return result;
 }

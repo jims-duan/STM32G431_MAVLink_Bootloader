@@ -19,21 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "crc.h"
-#include "dma.h"
 #include "iwdg.h"
-#include "usart.h"
+#include "tim.h"
 #include "usb_device.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stmflash.h"
-#include "usbd_cdc_if.h"
-#include <stdarg.h>
-#include "iap.h"
-#include "usbd_cdc_if.h"
-#include "ring_buffer.h"
-#include "ymodem.h"
+#include "task_fsm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -66,11 +59,8 @@ void SystemClock_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-#define UPDATE_MAGIC_APP  0xA55AA55A
-#define UPDATE_MAGIC_BOOT 0x5AA5A5A5
-// 放入.noinit段，上电不自动清零
-__attribute__((section(".noinit"))) volatile uint32_t g_UpdateFlag;
 /* USER CODE END 0 */
+
 /**
   * @brief  The application entry point.
   * @retval int
@@ -100,125 +90,20 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_USB_Device_Init();
-  MX_LPUART1_UART_Init();
   MX_CRC_Init();
-  // MX_IWDG_Init();
+  MX_IWDG_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  uint32_t i = 0;
-  // 按下按键上电等待3s，强制进入APP升级
-  while(HAL_GPIO_ReadPin(key_GPIO_Port, key_Pin) == GPIO_PIN_RESET)
-  {
-    i++;
-    if(i >= 30)
-    {
-      i = 0;
-      HAL_IWDG_Refresh(&hiwdg);
-      HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_SET);
-      HAL_Delay(800);
-      // 执行 RESET 命令
-      g_UpdateFlag = UPDATE_MAGIC_BOOT;
-      // __DSB();
-      // __ISB();
-      // NVIC_SystemReset();
-      break;
-    }
-    HAL_IWDG_Refresh(&hiwdg);
-    HAL_Delay(30);
+  // 启动1ms定时器
+  HAL_TIM_Base_Start_IT(&htim6);
 
-    HAL_GPIO_TogglePin(led_GPIO_Port, led_Pin);
-  }
-  
-  HAL_IWDG_Refresh(&hiwdg);
-  // 如果是APP触发软复位和更新标志
-  if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST) != RESET
-    && g_UpdateFlag == UPDATE_MAGIC_APP)
-  {
-    // 继续执行固件更新操作
-    g_UpdateFlag = 0;
-  }
-  else if (g_UpdateFlag == UPDATE_MAGIC_BOOT)
-  {
-    // 继续执行固件更新操作
-    g_UpdateFlag = 0;
-  }
-  else
-  {
-    g_UpdateFlag = 0;
-    __HAL_RCC_CLEAR_RESET_FLAGS();
-    // 没有事件发生，直接跳转APP
-    if (iap_load_app(0x08008000) < 0)
-    {
-      // 固件损坏或非固件文件，执行bootloader等待接收固件
-    }
-  }
+  // 初始化LED
+  led = LED_Init(led_GPIO_Port,  led_Pin,  LED_POLARITY_LOW);
+  // 初始化LED状态机
+  led_fsm = LED_FSM_Init(&led);
 
   YMODEM_Init(&ymodem_fsm);
-  RingBuff_Init(&usb_ringBuffer); // 初始化全局环形缓冲区
-
-  uint32_t sys_cnt = 0;
-  uint32_t breath_cnt = 0;
-  uint8_t duty = 0;
-  uint8_t dir = 1;
-
-  HAL_IWDG_Refresh(&hiwdg);
-  for(;;)
-  {
-    uint32_t tick = HAL_GetTick();
-    static uint32_t tick_200ms = 0;
-    if (tick - tick_200ms >= 200)
-    {
-      tick_200ms = tick;
-
-      HAL_IWDG_Refresh(&hiwdg);
-
-      if(RingBuff_GetSize(&usb_ringBuffer) > 0)
-      {
-        break;
-      }
-      if (usb_vcp_opened) // 等待上位机打开串口
-      {
-        YMODEM_SendByte(YMODEM_C);
-      }
-    }
-
-    sys_cnt++;
-    // 高频PWM：每次循环直接判断，无延时
-    if (sys_cnt < duty)
-    {
-      HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_RESET); // 亮
-    }
-    else
-    {
-      HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_SET);  // 灭
-    }
-    // PWM周期限制，防止计数溢出，255刚好对应duty范围0~255
-    if (sys_cnt >= 255)
-    {
-      sys_cnt = 0;
-    }
-    // 单独慢速计数器，控制呼吸明暗变化速度
-    breath_cnt++;
-    if (breath_cnt >= 15000) // 数值越大，呼吸越慢
-    {
-      breath_cnt = 0;
-      if (dir)
-      {
-        duty++;
-        if (duty >= 255)
-          dir = 0;
-      }
-      else
-      {
-        duty--;
-        if (duty == 0)
-          dir = 1;
-      }
-    }
-  }
-  __HAL_CRC_DR_RESET(&hcrc);
-  HAL_IWDG_Refresh(&hiwdg);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -229,79 +114,17 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     uint32_t tick = HAL_GetTick();
-    static uint32_t tick_1ms = 0;
-    static uint32_t tick_500ms = 0;
-    
-    if (tick - tick_500ms >= 500)
-    {
-      tick_500ms = tick;
+    static uint32_t tick_iwdg = 0;
 
+    tesk_fsm(&task_fsm, tick);
+    // 运行LED状态机
+    LED_FSM_Run(&led_fsm, tick);
+
+    // 700ms喂狗(复位周期1000ms)
+    if (get_tick_diff(tick, tick_iwdg) >= 700)
+    {
+      tick_iwdg = tick;
       HAL_IWDG_Refresh(&hiwdg);
-    }
-
-    static uint32_t last_tick = 0;
-    static uint8_t  state = 0;          // 0: 等待周期开始, 1: 亮灯, 2: 灭灯
-    static uint8_t  flash_count = 0;    // 当前周期内已完成的闪烁次数
-
-    switch (state)
-    {
-      case 0: // 等待500ms周期开始
-        if (tick - last_tick >= 1000)
-        {
-          flash_count = 0;                // 重置闪烁计数
-          HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_RESET);   // 亮灯
-          state = 1;
-          last_tick = tick;
-        }
-        break;
-
-      case 1: // 亮灯状态，持续40ms后熄灭
-        if (tick - last_tick >= 50)
-        {
-          HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_SET); // 灭灯
-          state = 2;
-          last_tick = tick;
-        }
-        break;
-
-      case 2: // 灭灯状态，持续40ms后判断
-        if (tick - last_tick >= 50)
-        {
-          flash_count++;
-          if (flash_count < 2)            // 还没闪够两次，再亮一次
-          {
-            HAL_GPIO_WritePin(led_GPIO_Port, led_Pin, GPIO_PIN_RESET);
-            state = 1;
-            last_tick = tick;
-          }
-          else                            // 两次已闪完，进入空闲等待
-          {
-            state = 0;
-            last_tick = tick;           // 重置计时起点，准备下一个500ms周期
-          }
-        }
-        break;
-
-      default:
-        state = 0;
-        break;
-    }
-    
-    if (tick - tick_1ms >= 1)
-    {
-      tick_1ms = tick;
-      // YMODEM解析
-      uint16_t size = RingBuff_GetSize(&usb_ringBuffer);
-      if (size == 133 || (usb_ringBuffer.buffer[usb_ringBuffer.tail] == 0x04)) // 标准包大小
-      {
-        uint8_t data[1029];
-
-        HAL_GPIO_TogglePin(led_GPIO_Port, led_Pin);
-
-        volatile uint16_t len = RingBuff_ReadBytes(&usb_ringBuffer, data, size);
-
-        YMODEM_Parse(&ymodem_fsm, data, &len);
-      }
     }
   }
   /* USER CODE END 3 */

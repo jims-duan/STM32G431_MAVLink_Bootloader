@@ -1,0 +1,210 @@
+#include "led_fsm.h"
+
+LED_FSM_Structure led_fsm; // 定义LED状态机结构体
+
+/*LED状态机初始化*/
+LED_FSM_Structure LED_FSM_Init(LED_Structure* led_struct)
+{
+    LED_FSM_Structure fsm;
+
+    fsm.event = LED_FSM_EVENT_OFF;
+    fsm.state = LED_FSM_STATE_OFF;
+    fsm.blink_on_tick = 0;
+    fsm.blink_off_tick = 0;
+    fsm.blink_on_time = 0;
+    fsm.blink_off_time = 0;
+    fsm.breathing_cycle = 0;        // 呼吸灯周期
+    fsm.breathing_step = 0;
+    fsm.breathing_pwm_cnt = 0;   // 呼吸灯开关(和breathing_duty比较)
+    fsm.breathing_last_tick = 0;   // 站空比更新周期
+    fsm.breathing_duty = 0;      // 呼吸灯占空比
+    fsm.breathing_direction = 0;    // 呼吸灯渐变方向
+    // 操作led指针
+    fsm.led_struct = led_struct;
+    fsm.duration = 0;
+    fsm.duration_start_tick = 0;
+
+    return fsm;
+}
+
+/*设置呼吸灯*/
+void LED_FSM_SetBreathingEvent(LED_FSM_Structure* fsm, uint16_t cycle)
+{
+    if (fsm->event == LED_FSM_EVENT_BREATHING && 
+        fsm->breathing_step == cycle)
+    {
+        return;
+    }
+    fsm->event = LED_FSM_EVENT_BREATHING;
+    fsm->breathing_cycle = cycle / 200;
+    fsm->breathing_step = cycle;
+
+    fsm->breathing_pwm_cnt = 0;
+    fsm->breathing_last_tick = 0;
+    fsm->breathing_duty = 0;
+    fsm->breathing_direction = 0;
+}
+
+/*设置led闪烁*/
+void LED_FSM_SetBlinkEvent(LED_FSM_Structure* fsm, uint32_t on_time, uint32_t off_time, uint32_t duration)
+{
+    if (fsm->event == LED_FSM_EVENT_BLINK &&
+        fsm->blink_on_time == on_time &&
+        fsm->blink_off_time == off_time &&
+        fsm->duration == duration)
+    {
+        return;
+    }
+    fsm->event = LED_FSM_EVENT_BLINK;
+    fsm->state = LED_FSM_STATE_COUNT;   // 用来判断第一次进入闪烁
+    fsm->blink_on_tick = 0;
+    fsm->blink_off_tick = 0;
+    fsm->blink_on_time = on_time;
+    fsm->blink_off_time = off_time;
+    fsm->duration = duration;
+    fsm->duration_start_tick = 0;
+}
+
+/*重置为默认设置*/
+void LED_FSM_ResetToDefault(LED_FSM_Structure* fsm)
+{
+    fsm->event = LED_FSM_EVENT_BLINK;
+    fsm->state = LED_FSM_STATE_COUNT;   // 用来判断第一次进入闪烁
+    fsm->blink_on_tick = 0;
+    fsm->blink_off_tick = 0;
+    fsm->blink_on_time = 500;
+    fsm->blink_off_time = 500;
+    fsm->duration = 0;
+    fsm->duration_start_tick = 0;
+}
+
+/*关闭led*/
+void LED_FSM_SetOFFEvent(LED_FSM_Structure* fsm)
+{
+    fsm->event = LED_FSM_EVENT_OFF;
+    fsm->state = LED_FSM_STATE_OFF;
+}
+
+/*开启led*/
+void LED_FSM_SetONEvent(LED_FSM_Structure* fsm)
+{
+    fsm->event = LED_FSM_EVENT_ON;
+    fsm->state = LED_FSM_STATE_ON;
+}
+
+/*LED状态机运行处理函数*/
+void LED_FSM_Run(LED_FSM_Structure* fsm, uint32_t tick)
+{
+    switch(fsm->event)
+    {
+        // 关闭事件
+        case(LED_FSM_EVENT_OFF):
+        {
+            LED_SetState(fsm->led_struct,LED_STATE_OFF);
+            fsm->state = LED_FSM_STATE_OFF;
+            fsm->event = LED_FSM_EVENT_IDLE;    // 只执行一次
+        }
+        break;
+
+        // 开启事件
+        case(LED_FSM_EVENT_ON):
+        {
+            LED_SetState(fsm->led_struct,LED_STATE_ON);
+            fsm->state = LED_FSM_STATE_ON;
+            fsm->event = LED_FSM_EVENT_IDLE;    // 只执行一次
+        }
+        break;
+
+        // 闪烁事件
+        case(LED_FSM_EVENT_BLINK):
+        {
+            if (fsm->duration > 0 && fsm->duration_start_tick != 0 && get_tick_diff(tick, fsm->duration_start_tick) >= fsm->duration)    // 如果持续时间超过设定值，强制关闭LED
+            {
+                LED_SetState(fsm->led_struct, LED_STATE_OFF);
+                fsm->state = LED_FSM_STATE_OFF;
+                fsm->event = LED_FSM_EVENT_IDLE;    // 结束闪烁
+                LED_FSM_ResetToDefault(fsm);   // 恢复默认闪烁设置
+                break;
+            }
+
+            // 首次进入闪烁状态
+            if((fsm->state != LED_FSM_STATE_ON) \
+            && (fsm->state != LED_FSM_STATE_OFF))
+            {
+                LED_SetState(fsm->led_struct, LED_STATE_ON);
+                fsm->blink_on_tick = tick;  // 记录开始亮的时间
+                fsm->state = LED_FSM_STATE_ON;
+
+                fsm->duration_start_tick = tick;   // 记录持续时间开始的时间
+            }
+            else if(fsm->state == LED_FSM_STATE_OFF)
+            {
+                // 当前是灭的状态，检查是否该亮了
+                if(get_tick_diff(tick, fsm->blink_off_tick) >= fsm->blink_off_time)
+                {
+                    LED_SetState(fsm->led_struct, LED_STATE_ON);
+                    fsm->blink_on_tick = tick;  // 记录开始亮的时间
+                    fsm->state = LED_FSM_STATE_ON;
+                }
+            }
+            else if(fsm->state == LED_FSM_STATE_ON)
+            {
+                // 当前是亮的状态，检查是否该灭了
+                if(get_tick_diff(tick, fsm->blink_on_tick) >= fsm->blink_on_time)
+                {
+                    LED_SetState(fsm->led_struct, LED_STATE_OFF);
+                    fsm->blink_off_tick = tick;   // 记录开始灭的时间
+                    fsm->state = LED_FSM_STATE_OFF;
+                }
+            }
+        }
+        break;
+
+        // 呼吸事件
+        case(LED_FSM_EVENT_BREATHING):
+        {
+            fsm->breathing_pwm_cnt++;
+            // 高频PWM：每次循环直接判断，无延时
+            if (fsm->breathing_pwm_cnt < fsm->breathing_duty)
+            {
+                LED_SetState(fsm->led_struct,LED_STATE_ON); // 亮
+            }
+            else
+            {
+                LED_SetState(fsm->led_struct,LED_STATE_OFF);  // 灭
+            }
+            // PWM周期限制，防止计数溢出
+            if (fsm->breathing_pwm_cnt >= 100)
+            {
+                fsm->breathing_pwm_cnt = 0;
+            }
+            
+            // 呼吸灯周期
+            if (get_tick_diff(tick, fsm->breathing_last_tick) >= fsm->breathing_cycle)
+            {
+                fsm->breathing_last_tick = tick;
+                if (fsm->breathing_direction)
+                {
+                    fsm->breathing_duty++;
+                    if (fsm->breathing_duty >= 100)
+                        fsm->breathing_direction = 0;
+                }
+                else
+                {
+                    fsm->breathing_duty--;
+                    if (fsm->breathing_duty <= 0)
+                        fsm->breathing_direction = 1;
+                }
+            }
+        }
+        break;
+
+        // 默认事件(空闲)
+        default:
+        {
+            
+        }
+        break;
+    }
+}
+
